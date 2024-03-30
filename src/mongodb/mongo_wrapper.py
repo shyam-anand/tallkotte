@@ -1,5 +1,4 @@
 # type: ignore
-from . import *
 
 from bson.objectid import ObjectId
 from pymongo import MongoClient
@@ -14,10 +13,10 @@ class MongoDB:
     __CONNECTION_STRING__ = "{prefix}://{username}:{password}@{host}?retryWrites={retryWrites}&w={writeConcern}"
 
     def __init__(self,
-                 username: str = MONGO_USERNAME,
-                 password: str = MONGO_PASSWORD,
-                 host: str = MONGO_HOST,
-                 db: str = MONGO_DATABASE,
+                 username: str,
+                 password: str,
+                 host: str,
+                 db: str,
                  retryWrites: str = 'true',
                  writeConcern: str = 'majority',
                  connection_string_format: str = 'standard') -> None:

@@ -5,8 +5,6 @@ from ..assistant.openai.openai_wrapper import Message
 from datetime import datetime
 from typing import Any
 
-import pprint
-
 
 def _to_message(document: dict[str, Any]) -> Message:
     del document['_id']

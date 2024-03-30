@@ -180,3 +180,4 @@ pyrightconfig.json
 data/
 
 secrets.sh
+run.sh

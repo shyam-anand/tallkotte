@@ -1,8 +1,8 @@
-from cvassistant.assistant.assistantthread import AssistantThread
-from cvassistant.assistant.constants import *
-from cvassistant.assistant.openai import openai
-from cvassistant.assistant.openai.datatypes import Message
-from cvassistant.redisdb import redis
+from .assistant_thread import AssistantThread
+from .constants import ASSISTANT_NAME, ASSISTANT_DESCRIPTION, ASSISTANT_INSTRUCTION
+from .openai import openai
+from .openai.datatypes import Message
+from ..redisdb import redis
 from openai.types.beta.assistant import Assistant
 from typing import Any, Optional
 
@@ -49,7 +49,7 @@ def save_assistant(assistant: Assistant) -> AssistantState:
     return assistant_state
 
 
-class CVAssistant:
+class AssistantService:
 
     _logger = logging.getLogger(__name__)
 
@@ -118,32 +118,28 @@ class CVAssistant:
             openai.open_file(filename)
             for filename in cv_files
         ]
-        thread = AssistantThread(assistant_id=self.id, files=files)
+        thread = AssistantThread(self.id, files=files)
         if set_active:
             self._set_active_thread(thread.id)
 
         return thread
 
     def get_thread(self, thread_id: Optional[str]) -> AssistantThread:
-        return AssistantThread(assistant_id=self.id, thread_id=thread_id) \
-            if thread_id else self.get_active_thread()
+        """Retrurns the active or specified thread."""
+        return AssistantThread(self.id, thread_id or self._get_active_thread_id())
 
-    def get_active_thread(self):
-        return AssistantThread(assistant_id=self.id,
-                               thread_id=self._get_active_thread_id())
+    async def _save_response(self, thread: AssistantThread, message: Message) -> None:
+        thread.save_response(message.run_id, message.id)
 
-    async def save_response(self, thread: AssistantThread, message: Message) -> None:
-        thread.save_response(message['run_id'], message['id'])  # type: ignore
-
-    def send_message(self, text: str) -> Message:
-        thread: AssistantThread = self.get_active_thread()
+    def send_message(self, text: str, thread_id: str = '') -> Message:
+        thread: AssistantThread = self.get_thread(thread_id or None)
         message = thread.send_message(text)
 
         try:
             # Asynchronously get and save the reply
-            asyncio.run(self.save_response(thread, message))
+            asyncio.run(self._save_response(thread, message))
         except Exception as e:
-            self._logger.error(e)
+            self._logger.error('Failed to save response: %s', e)
 
         self._logger.info(f'Sent message: {message}')
         return message

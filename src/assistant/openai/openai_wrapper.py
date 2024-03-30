@@ -4,27 +4,29 @@ from openai.pagination import SyncCursorPage
 from openai.types import FileObject
 from openai.types.beta import Thread
 from openai.types.beta.assistant import Assistant
-from openai.types.beta.threads import Run, ThreadMessage, MessageContentText
+from openai.types.beta.threads import Run
+from openai.types.beta.threads.message import Message as ThreadMessage
+from openai.types.beta.threads.text_content_block import TextContentBlock
 from typing import Optional
 
 import logging
 
 
-def _message_to_dict(message: ThreadMessage) -> dict[str, int | str | list[str] | None]:
+def _message_to_dict(message: ThreadMessage) -> Message:
     message_content: list[str] = []
     for content in message.content:
-        if isinstance(content, MessageContentText):
+        if isinstance(content, TextContentBlock):
             message_content.append(content.text.value)
         else:
             logging.warning(f'Unknown content type: {type(content)} {content}')
-    return {
-        'id': message.id,
-        'role': message.role,
-        'created_at': message.created_at,
-        'run_id': message.run_id or None,
-        'thread_id': message.thread_id,
-        'content': message_content
-    }
+    return Message(
+        message.id,
+        message.role,
+        message.created_at,
+        '',
+        message.thread_id,
+        message_content
+    )
 
 
 class OpenAIWrapper:
@@ -33,10 +35,15 @@ class OpenAIWrapper:
     _client: OpenAI
 
     def __init__(self, api_key: str, model: str) -> None:
+        if not api_key:
+            raise ValueError('OPENAI API key is required.')
+        
         self._api_key = api_key
         self._model = model
 
         self._client = OpenAI(api_key=self._api_key)
+        self._logger.info(f"Client created: {self._client}")
+        self._logger.debug(f'api_key: {self._api_key}')
 
     @property
     def client(self) -> OpenAI:
@@ -57,8 +64,10 @@ class OpenAIWrapper:
             instructions: str) -> Assistant:
         self._logger.info("Creating assistant...")
 
-        assistant = self.client.beta.assistants.create(
-            name=name, description=description, instructions=instructions, model=self._model)
+        assistant = self.client.beta.assistants.create(name=name,
+                                                       description=description,
+                                                       instructions=instructions,
+                                                       model=self._model)
         self._logger.info(f'Assistant created: {assistant.id}')
         return assistant
 

@@ -7,19 +7,16 @@ from typing import Any
 import os
 
 
-DEFAULT_MONGO_HOST = 'localhost'
-DEFAULT_MONGO_USERNAME = 'root'
-DEFAULT_MONGO_PASSWORD = 'toor'
-DEFAULT_MONGO_DATABASE = 'cvassistant'
-
-
 def env(name: str, default: Any = None) -> str:
     return os.environ.get(name) or default
 
 
+MONGO_HOST = env('MONGO_HOST', 'localhost')
+MONGO_USERNAME = env('MONGO_USERNAME', 'root')
+MONGO_PASSWORD = env('MONGO_PASSWORD', 'toor')
+MONGO_DATABASE = env('MONGO_DATABASE', 'cvassistant')
+
+
 mongodb = MongoDB(
-    env('MONGO_HOST', DEFAULT_MONGO_HOST),
-    env('MONGO_USERNAME', DEFAULT_MONGO_USERNAME),
-    env('MONGO_PASSWORD', DEFAULT_MONGO_PASSWORD),
-    env('MONGO_DATABASE', DEFAULT_MONGO_DATABASE)
+    MONGO_HOST, MONGO_USERNAME, MONGO_PASSWORD, MONGO_DATABASE
 )

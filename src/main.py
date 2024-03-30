@@ -1,5 +1,5 @@
-from cvassistant.assistant.assistantthread import AssistantThread
-from setup import cvassistant
+from assistant.assistant import AssistantService
+from assistant.assistant_thread import AssistantThread
 
 import argparse
 import logging
@@ -38,6 +38,7 @@ args = cli_args.parse_args()
 
 def main(args: argparse.Namespace,
          logger: logging.Logger = logging.getLogger(__name__)) -> None:
+    cvassistant = AssistantService()
     logger.info(
         f'Assistant "{cvassistant.name}" ({cvassistant.id}) is ready')
 
@@ -46,8 +47,8 @@ def main(args: argparse.Namespace,
     else:
         if args.message:
             thread: AssistantThread = cvassistant.get_thread(args.thread_id)
-            run_id = thread.send_message(args.message)
-            thread.save_response(run_id)
+            message = thread.send_message(args.message)
+            thread.save_response(message.run_id, message.id)
         elif args.cv_filename:
             thread: AssistantThread = cvassistant.create_thread(
                 [args.cv_filename])

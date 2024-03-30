@@ -1,8 +1,8 @@
-from cvassistant.assistant.constants import __ASSISTANT_INIT_MESSAGE__
-from cvassistant.mongodb import mongodb
-from cvassistant.redisdb import redis
-from cvassistant.assistant.openai import openai
-from cvassistant.assistant.openai.datatypes import Message
+from .constants import ASSISTANT_INIT_MESSAGE
+from .openai import openai
+from .openai.datatypes import Message
+from ..mongodb import mongodb
+from ..redisdb import redis
 from openai.types import FileObject
 from openai.types.beta import Thread
 from typing import Any, Optional
@@ -12,9 +12,15 @@ import logging
 import time
 
 
-def _to_message(document: dict[str, Any]) -> Message:
-    del document['_id']
-    return document
+def _to_message(message_document: dict[str, Any]) -> Message:
+    return Message(
+        message_document['id'],
+        message_document['role'],
+        message_document['created_at'],
+        message_document['run_id'],
+        message_document['thread_id'],
+        message_document['content']
+    )
 
 
 class AssistantThread:
@@ -36,7 +42,7 @@ class AssistantThread:
     def _init_thread(self,
                      thread_id: Optional[str],
                      files: list[FileObject] = [],
-                     init_message: str = __ASSISTANT_INIT_MESSAGE__,) -> None:
+                     init_message: str = ASSISTANT_INIT_MESSAGE,) -> None:
         def _save(thread: Thread) -> dict[str, str | list[str]]:
             thread_json: dict[str, str | list[str]] = {
                 'id': thread.id,
@@ -140,8 +146,19 @@ class AssistantThread:
         return messages
 
     def send_message(self, text: str) -> Message:
+        """Send a message to the thread.
+
+        Creates a new message in the thread, then creates run in the thread.
+        The created message is saved in the database, and returned.
+
+        Args:
+            text (str): Text to send.
+
+        Returns:
+            Message: The created message, with the run_id.
+        """
         message = openai.create_message(self.id, text)
-        self._logger.info(f'Message added: {message['id']}')
+        self._logger.info(f'Message added: {message.id}')
 
         run_id = openai.create_run(
             self._assistant_id, self.id)
@@ -149,7 +166,7 @@ class AssistantThread:
         self._logger.info(f'Run created: {run_id}')
 
         # Set run_id in message
-        message['run_id'] = run_id
+        message.run_id = run_id
 
         self._save_messages([message])
         redis.write(f'last_sent:{self.id}', json.dumps(message))

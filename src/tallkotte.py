@@ -1,9 +1,10 @@
-from cvassistant.assistant import cvassistant
 from flask import Flask, request
+from .assistant.assistant import AssistantService
+from .setup import ASSISTANT_ID
 
 app = Flask(__name__)
 
-cvassistant = cvassistant.CVAssistant()
+cvassistant = AssistantService(ASSISTANT_ID)
 
 
 @app.route('/')
@@ -20,8 +21,8 @@ def assistant():
     }
 
 
-@app.route('/messages', methods=['POST', 'GET'])
-def messages():  # type: ignore
+@app.route('/messages', methods=['POST', 'GET'])  # type: ignore[no-any-return]
+def messages():  # type: ignore[no-any-return]
     if request.method == 'POST':
         text = request.args.get('message')
         if not text:
@@ -29,7 +30,6 @@ def messages():  # type: ignore
 
         message = cvassistant.send_message(text)
         return (message, 201)
-
     elif request.method == 'GET':
         run_id = request.args.get('run')
         after = request.args.get('after')
