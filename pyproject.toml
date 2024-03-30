@@ -1,0 +1,11 @@
+[project]
+name = "cvassistant"
+description = "AI CV reviewer."
+version = "0.1.0"
+authors = [
+  { name = "Shyam Anand", email = "shyam.anand@pyyne.com" }
+]
+
+[build-system]
+build-backend = "flit_core.buildapi"
+requires = ["flit_core >=3.2,<4"]
