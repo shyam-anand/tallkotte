@@ -30,13 +30,15 @@ Content-Type: application/json
 This returns a Message object, as shown below:
 
 ```json
-POST /messages HTTP/1.1
-Host: <host:port>
-Content-Type: application/json
-Content-Length: 46
-
 {
-    "text": "Summarize the CV of John Doe"
+    "content": [
+        "Summarize the CV of John Doe"
+    ],
+    "created_at": 1711992736,
+    "id": "msg_B2GTTdyAxzyC2aeSQJi3P1Xf",
+    "role": "user",
+    "run_id": "run_ClD5W2INBdLoiYJGBzWmwDhA",
+    "thread_id": "thread_uaw30EcQnmQceaXLNaZy9vpT"
 }
 ```
 
@@ -47,4 +49,21 @@ The `id` of the message should be used to make the request to get the response.
 ```
 GET /messages/msg_B2GTTdyAxzyC2aeSQJi3P1Xf/response HTTP/1.1
 Host: <host:port>
+```
+
+This returns the response to the specified message.
+
+```json
+[
+    {
+        "content": [
+            "Shyam Anand's startup experience is not explicitly detailed in the provided resume. The resume highlights roles at established companies like Google, Turvo, and others, but specific startup experience or ventures are not mentioned. Therefore, there is no information available to summarize Shyam's startup experience based on the resume provided."
+        ],
+        "created_at": 1711992737,
+        "id": "msg_jnp9ITGeT59ZhokkVjrNgU4p",
+        "role": "assistant",
+        "run_id": "run_ClD5W2INBdLoiYJGBzWmwDhA",
+        "thread_id": "thread_uaw30EcQnmQceaXLNaZy9vpT"
+    }
+]
 ```
