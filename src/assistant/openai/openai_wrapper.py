@@ -1,32 +1,13 @@
-from .datatypes import Message
+from . import converters
+from .datatypes import Message, Run
 from openai import OpenAI
-from openai.pagination import SyncCursorPage
 from openai.types import FileObject
 from openai.types.beta import Thread
 from openai.types.beta.assistant import Assistant
-from openai.types.beta.threads import Run
-from openai.types.beta.threads.message import Message as ThreadMessage
-from openai.types.beta.threads.text_content_block import TextContentBlock
-from typing import Optional
+from openai.types.beta.threads import Run as OpenAIRun
+from typing import Literal, Optional
 
 import logging
-
-
-def _message_to_dict(message: ThreadMessage) -> Message:
-    message_content: list[str] = []
-    for content in message.content:
-        if isinstance(content, TextContentBlock):
-            message_content.append(content.text.value)
-        else:
-            logging.warning(f'Unknown content type: {type(content)} {content}')
-    return Message(
-        message.id,
-        message.role,
-        message.created_at,
-        '',
-        message.thread_id,
-        message_content
-    )
 
 
 class OpenAIWrapper:
@@ -37,7 +18,7 @@ class OpenAIWrapper:
     def __init__(self, api_key: str, model: str) -> None:
         if not api_key:
             raise ValueError('OPENAI API key is required.')
-        
+
         self._api_key = api_key
         self._model = model
 
@@ -111,29 +92,32 @@ class OpenAIWrapper:
         message = self.client.beta.threads.messages.create(
             thread_id=thread_id, content=text, role='user')
         self._logger.info(f'Message ID: {message.id}')
-        return _message_to_dict(message)
+        return converters.to_message(message)
 
-    def create_run(self, assistant_id: str, thread_id: str, instructions: str = '') -> str:
-        self._logger.info(f"Running thread {
-                          thread_id} in assistant {assistant_id}")
+    def create_run(self,
+                   assistant_id: str,
+                   thread_id: str,
+                   instructions: str = '') -> Run:
+        self._logger.info(f'Creating run in thread {thread_id} '
+                          f'in assistant {assistant_id}')
         run = self.threads.runs.create(assistant_id=assistant_id,
                                        thread_id=thread_id,
                                        instructions=instructions)
         self._logger.info(f"Run ID: {run.id}")
-        return run.id
+        return converters.to_run(run)
 
     def retrieve_run(self, run_id: str, thread_id: str) -> Run:
         self._logger.info(f'Retrieving run [{run_id}] in thread [{thread_id}]')
         run = self.threads.runs.retrieve(
             run_id=run_id, thread_id=thread_id)
-        self._logger.debug(f'Run: {run}')
-        return run
+        self._logger.info(f'Run: {run}')
+        return converters.to_run(run)
 
     def get_run_status(self, run_id: str, thread_id: str) -> str:
         run = self.retrieve_run(run_id, thread_id)
-        return run.status
+        return run['status']
 
-    def _run_info(self, run: Run) -> None:
+    def _run_info(self, run: OpenAIRun) -> None:
         self._logger.debug(f'=== run.id: {run.id}')
         self._logger.debug(f'\tstatus: {run.status}')
         self._logger.debug(f'\tcreated_at: {run.created_at}')
@@ -152,24 +136,63 @@ class OpenAIWrapper:
             self._logger.debug(f'\ttotal_tokens: {usage.total_tokens}')
         self._logger.debug('=========================')
 
-    def list_runs(self, thread_id: str) -> SyncCursorPage[Run]:
-        return self.threads.runs.list(thread_id=thread_id)
+    def list_runs(self, thread_id: str) -> list[Run]:
+        return [
+            converters.to_run(run)
+            for run in self.threads.runs.list(thread_id=thread_id)
+        ]
 
-    def list_messages(self, thread_id: str, after: Optional[str] = None) -> list[Message]:
+    def list_messages(self,
+                      thread: str,
+                      after: Optional[str] = None,
+                      before: Optional[str] = None,
+                      limit: int = 20,
+                      sort: Literal['asc', 'desc'] = 'desc') -> list[Message]:
         """
         Retrieve a list of messages from a thread.
 
         Args:
-            thread_id (str): The ID of the thread.
+            thread (str): The ID of the thread.
+
+            after (str, optional): A cursor for use in pagination. `after` is an
+                object ID that defines your place in the list. For instance, 
+                if you make a list request and receive 100 objects, ending with
+                obj_foo, your subsequent call can include after=obj_foo in order
+                to fetch the next page of the list.
+
+            before (str, optional): A cursor for use in pagination. `before` is an
+                object ID that defines your place in the list. For instance, if you
+                make a list request and receive 100 objects, ending with obj_foo, your
+                subsequent call can include before=obj_foo in order to fetch the
+                previous page of the list.
+
+            limit (int, optional): A limit on the number of objects to be returned.
+                Limit can range between 1 and 100, and the default is 20.
+
+            sort (Literal["asc", "desc"], optional): Sort order by the `created_at`
+                timestamp of the objects. `asc` (the default) for ascending order and
+                `desc` for descending order.
 
         Returns:
             list[Message]: Messages in the thread.
         """
+        list_args = {'thread_id': thread, 'order': sort}
+        if after:
+            list_args['after'] = after
+        if before:
+            list_args['before'] = before
+        if limit:
+            list_args['limit'] = limit  # type: ignore
+
+        self._logger.info(f"Retrieving messages [{list_args}]")
         try:
-            message_list = self.messages.list(thread_id=thread_id, after=after) \
-                if after else self.messages.list(thread_id=thread_id)
+            message_list = self.messages.list(**list_args)  # type: ignore
+            
+            print(message_list)
+            
+            for message in message_list:
+                self._logger.info(message)
+            return [converters.to_message(message) for message in message_list]
         except Exception as e:
             self._logger.error(f"Error retrieving messages: {e}")
             return []
-
-        return [_message_to_dict(message) for message in message_list]

@@ -1,3 +1,4 @@
+from . import background_task_executor, messages_dao
 from .assistant_thread import AssistantThread
 from .constants import ASSISTANT_NAME, ASSISTANT_DESCRIPTION, ASSISTANT_INSTRUCTION
 from .openai import openai
@@ -6,11 +7,11 @@ from ..redisdb import redis
 from openai.types.beta.assistant import Assistant
 from typing import Any, Optional
 
-import asyncio
 import json
 import logging
 
 
+# ToDo: Change to TypedDict, move save() to AssistantService
 class AssistantState:
     def __init__(self, id: str, state: dict[str, Any]):
         self._id = id
@@ -56,6 +57,10 @@ class AssistantService:
     def __init__(self, assistant_id: Optional[str] = None):
         self._state = self._retrieve(assistant_id) if assistant_id \
             else self._create()
+
+    @property
+    def state(self) -> AssistantState:
+        return self._state
 
     @property
     def id(self) -> str:
@@ -124,22 +129,43 @@ class AssistantService:
 
         return thread
 
-    def get_thread(self, thread_id: Optional[str]) -> AssistantThread:
+    def get_thread(self, thread_id: str = '') -> AssistantThread:
         """Retrurns the active or specified thread."""
         return AssistantThread(self.id, thread_id or self._get_active_thread_id())
 
-    async def _save_response(self, thread: AssistantThread, message: Message) -> None:
-        thread.save_response(message.run_id, message.id)
-
-    def send_message(self, text: str, thread_id: str = '') -> Message:
-        thread: AssistantThread = self.get_thread(thread_id or None)
+    def send_message(self, text: str, thread_id: str = '',
+                     *, await_response_async: bool = True) -> Message:
+        thread = self.get_thread(thread_id)
         message = thread.send_message(text)
-
-        try:
-            # Asynchronously get and save the reply
-            asyncio.run(self._save_response(thread, message))
-        except Exception as e:
-            self._logger.error('Failed to save response: %s', e)
-
         self._logger.info(f'Sent message: {message}')
+
+        if await_response_async:
+            try:
+                # Asynchronously get and save the reply
+                background_task_executor.execute_concurrently(
+                    thread.get_response, message['run_id'], message['id']
+                )
+            except Exception as e:
+                self._logger.error('Failed to save response: %s', e)
+
         return message
+
+    def get_messages(self,
+                     thread_id: str = '',
+                     after: Optional[str] = '') -> list[Message]:
+        thread = self.get_thread(thread_id)
+        return thread.get_messages(after)
+
+    def get_run(self, run_id: str):
+        return openai.retrieve_run(run_id, self.active_thread)
+
+    def get_response(self, message_id: str) -> list[Message]:
+        message = messages_dao.find_by_id(message_id)
+        if not message:
+            raise ValueError(f'No message found with id: {message_id}')
+        if message['role'] != 'user':
+            raise ValueError(f'Message is not from user: {message_id}')
+        if not message['run_id']:
+            raise ValueError(f'Message has no run_id: {message_id}')
+
+        return self.get_thread().get_response(message['run_id'], message['id'])

@@ -1,7 +1,7 @@
+from . import messages_dao
 from .constants import ASSISTANT_INIT_MESSAGE
 from .openai import openai
 from .openai.datatypes import Message
-from ..mongodb import mongodb
 from ..redisdb import redis
 from openai.types import FileObject
 from openai.types.beta import Thread
@@ -10,17 +10,6 @@ from typing import Any, Optional
 import json
 import logging
 import time
-
-
-def _to_message(message_document: dict[str, Any]) -> Message:
-    return Message(
-        message_document['id'],
-        message_document['role'],
-        message_document['created_at'],
-        message_document['run_id'],
-        message_document['thread_id'],
-        message_document['content']
-    )
 
 
 class AssistantThread:
@@ -38,6 +27,10 @@ class AssistantThread:
 
         self._assistant_id = assistant_id
         self._init_thread(thread_id=thread_id, files=files)
+
+    @property
+    def id(self) -> str:
+        return self._id
 
     def _init_thread(self,
                      thread_id: Optional[str],
@@ -77,73 +70,14 @@ class AssistantThread:
         thread_json = redis.read(thread_id)
         return json.loads(thread_json) if thread_json else None
 
-    @property
-    def id(self) -> str:
-        return self._id
-
-    def _save_messages(self, messages: list[Message]) -> None:
-        try:
-            insert_ids = mongodb.insert('messages', messages)
-            self._logger.info(f'{len(insert_ids)} messages inserted')
-            self._logger.info([str(o) for o in insert_ids])
-        except Exception as e:
-            self._logger.error(f'Error while saving messages: {e}')
-
-    def _find_messages_by_run_id(self, run_id: str) -> list[Message]:
-        try:
-            results = mongodb.find('messages', {'run_id': run_id})
-            return [_to_message(document) for document in results]
-        except Exception as e:
-            self._logger.error(f'Error while retrieving messages: {e}')
-            return []
-
-    def _run_complete(self, run_id: str) -> bool:
-        cached_run_status = redis.read(f'{run_id}:status')
-        return bool(cached_run_status and cached_run_status == 'completed')
-
-    def _await_run_completion(self, run_id: str,
-                              wait_delay: int = 2,
-                              max_wait_sec: int = 60) -> None:
-        """Blocks until run is completed."""
-        def run_incomplete() -> bool:
-            run_status = openai.get_run_status(run_id, self.id)
-            return run_status in ['queued', 'in_progress', 'cancelling']
-
-        self._logger.debug('Awaiting run completion: %s', run_id)
-        end = start = time.time()
-
-        while run_incomplete() and (end - start) < max_wait_sec:
-            time.sleep(wait_delay)
-            end = time.time()
-
-        if (end - start) > max_wait_sec:
-            redis.write(f'{run_id}:status', 'timeout')
-            raise RuntimeError(f'Run not completed after {
-                               max_wait_sec} seconds')
-
-        self._logger.debug('Run completed: %s', run_id)
-        redis.write(f'{run_id}:status', 'completed')
-
     def _get_last_message(self, thread_id: str) -> Message | None:
         """Get last message in thread from Mongo."""
-        results = mongodb.find(
-            'messages',
+        results = messages_dao.find(
             filter={'thread_id': thread_id},
             sort={'timestamp': -1}
         )
 
-        if len(results) >= 1:
-            return _to_message(results[0])
-
-        return None
-
-    def get_messages(self, after: str = '') -> list[Message]:
-        self._logger.debug('Retrieving messages for current thread: %s%s',
-                           self.id, f'after {after}' if after else '')
-        messages = openai.list_messages(self.id, after=after)
-        self._logger.info(f'{len(messages)} messages retrieved')
-
-        return messages
+        return results[0] if results else None
 
     def send_message(self, text: str) -> Message:
         """Send a message to the thread.
@@ -158,22 +92,87 @@ class AssistantThread:
             Message: The created message, with the run_id.
         """
         message = openai.create_message(self.id, text)
-        self._logger.info(f'Message added: {message.id}')
+        self._logger.info(f'Message {message['id']} added to thread {self.id}')
 
-        run_id = openai.create_run(
-            self._assistant_id, self.id)
-        redis.write('f{run_id}:status', 'created')
-        self._logger.info(f'Run created: {run_id}')
+        run = openai.create_run(self._assistant_id, self.id)
+        run_id = run['id']
+        redis.write(f'{run_id}:status', 'created')
+        self._logger.info(f'{run_id} created in {self.id}')
 
         # Set run_id in message
-        message.run_id = run_id
+        message['run_id'] = run_id
 
-        self._save_messages([message])
-        redis.write(f'last_sent:{self.id}', json.dumps(message))
+        self._logger.debug(f'Saving message: {message}')
+        messages_dao.save([message])
+        redis.write(f'last_sent:{self.id}', json.dumps(message['id']))
 
         return message
 
-    def save_response(self, run_id: str, message_id: str) -> None:
+    def get_messages(self,
+                     before: Optional[str] = None,
+                     after: Optional[str] = None) -> list[Message]:
+        self._logger.debug('Retrieving messages for thread: %s%s',
+                           self.id, f'after {after}' if after else '')
+        messages = openai.list_messages(
+            self.id, before=before, after=after)
+        self._logger.info(f'{len(messages)} messages retrieved')
+        return messages
+
+    def _await_run_completion(self, run_id: str,
+                              wait_delay: int = 2,
+                              max_wait_sec: int = 60) -> None:
+        """Blocks until run is completed."""
+
+        # Check if the run was previously completed.
+        run_status = redis.read(f'{run_id}:status')
+        if bool(run_status and run_status == 'completed'):
+            return
+
+        def run_incomplete() -> bool:
+            run_status = openai.get_run_status(run_id, self.id)
+            self._logger.info(f'Run status: {run_status}')
+            return run_status in ['queued', 'in_progress', 'cancelling']
+
+        self._logger.debug(f'Awaiting completion of run [{run_id}]')
+        end = start = time.time()
+
+        while run_incomplete() and (end - start) < max_wait_sec:
+            self._logger.info(f'Waiting {wait_delay} seconds')
+            time.sleep(wait_delay)
+            end = time.time()
+
+        if (end - start) > max_wait_sec:
+            redis.write(f'{run_id}:status', 'timeout')
+            raise RuntimeError(
+                f'Run not completed after {max_wait_sec} seconds')
+
+        self._logger.debug('Run completed: %s', run_id)
+        redis.write(f'{run_id}:status', 'completed')
+
+    def _get_saved_response(self, run_id: str) -> Optional[list[Message]]:
+        return messages_dao.find_by_run_id_and_role(run_id, 'assistant')
+
+    def _await_run_completion_and_get_response(
+            self, run_id: str, user_message_id: str) -> list[Message]:
+        self._await_run_completion(run_id)
+
+        messages = self.get_messages(before=user_message_id)
+
+        response: list[Message] = []
+        for message in messages:
+            if not messages_dao.find({'id': message['id']}):
+                message['run_id'] = run_id
+                response.append(message)
+
+        self._logger.info(f'Saving {len(response)} responses.')
+        messages_dao.save(response)
+
+        self._logger.info('Response for %s retrieved', user_message_id)
+        self._logger.info(response)
+
+        return response
+
+    def get_response(self, run_id: str, user_message_id: str) -> list[Message]:
         """Get response messages from the run, after the given message ID.
 
         If the Run is not complete, wait until it is. Then fetch the messages 
@@ -187,17 +186,8 @@ class AssistantThread:
         Returns:
             List of messages from the run.
         """
-        def _get_messages(run_id: str, after: str) -> list[Message]:
-            # If the run was previously cancelled, fetch the messages from the database.
-            if self._run_complete(run_id):
-                return self._find_messages_by_run_id(run_id)
+        self._logger.info('Retrieving response for %s', user_message_id)
 
-            self._await_run_completion(run_id)
-            return self.get_messages(after=after)
-
-        response = _get_messages(run_id, message_id)
-        self._save_messages(response)
-        redis.write(f'reply:{message_id}', json.dumps(response))
-
-        self._logger.info('Replies for %s retrieved and saved', message_id)
-        self._logger.info(response)
+        return self._get_saved_response(run_id) \
+            or self._await_run_completion_and_get_response(
+                run_id, user_message_id)

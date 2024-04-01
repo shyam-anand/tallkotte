@@ -13,9 +13,9 @@ class MongoDB:
     __CONNECTION_STRING__ = "{prefix}://{username}:{password}@{host}?retryWrites={retryWrites}&w={writeConcern}"
 
     def __init__(self,
+                 host: str,
                  username: str,
                  password: str,
-                 host: str,
                  db: str,
                  retryWrites: str = 'true',
                  writeConcern: str = 'majority',
@@ -38,17 +38,34 @@ class MongoDB:
     def get_collection(self, collection_name: str) -> MongoClient:
         return self._db[collection_name]
 
-    def insert(self, collection_name: str, document: list[Any]) -> list[ObjectId]:
+    def insert(self, collection_name: str, documents: list[Any]) -> list[ObjectId]:
+        if not documents:
+            self._logger.info('No documents to insert')
+            return []
+        
         collection = self.get_collection(collection_name)
-        result = collection.insert_many(document)
+        
+        if len(documents) == 1:
+            self._logger.info(f'Inserting 1 document into {collection_name}')
+            result = collection.insert_one(documents[0])
+            return [result.inserted_id]
+        
+        self._logger.info(
+            f'Inserting {len(documents)} documents into {collection_name}')
+        result = collection.insert_many(documents)
         return result.inserted_ids
-
+    
     def find(self,
              collection_name: str,
              filter: Optional[dict[str, Any]] = None,
              projection: Optional[dict[str, Any]] = None,
              sort: Optional[dict[str, Any]] = None,
-             limit: int = 20) -> list[Any]:
+             limit: Optional[int] = None) -> list[Any]:
+        limit = limit or 20
+        self._logger.info(f'Finding documents in {collection_name}')
+        self._logger.info(f'filter: {filter}')
+        self._logger.info(f'projection: {projection}')
+        self._logger.info(f'sort: {sort}, limit: {limit}')
         collection = self.get_collection(collection_name)
         result_cursor = collection.find(
             filter=filter,

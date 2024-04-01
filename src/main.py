@@ -1,4 +1,4 @@
-from assistant.assistant import AssistantService
+from assistant.assistant_service import AssistantService
 from assistant.assistant_thread import AssistantThread
 
 import argparse
@@ -48,7 +48,7 @@ def main(args: argparse.Namespace,
         if args.message:
             thread: AssistantThread = cvassistant.get_thread(args.thread_id)
             message = thread.send_message(args.message)
-            thread.save_response(message.run_id, message.id)
+            thread.get_response(message.run_id, message.id)
         elif args.cv_filename:
             thread: AssistantThread = cvassistant.create_thread(
                 [args.cv_filename])

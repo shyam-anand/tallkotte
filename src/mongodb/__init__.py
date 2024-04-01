@@ -18,5 +18,8 @@ MONGO_DATABASE = env('MONGO_DATABASE', 'cvassistant')
 
 
 mongodb = MongoDB(
-    MONGO_HOST, MONGO_USERNAME, MONGO_PASSWORD, MONGO_DATABASE
+    host=MONGO_HOST,
+    username=MONGO_USERNAME,
+    password=MONGO_PASSWORD,
+    db=MONGO_DATABASE
 )
