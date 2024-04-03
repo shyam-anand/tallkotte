@@ -1,6 +1,6 @@
 # type: ignore
-
 from bson.objectid import ObjectId
+from flask import current_app, g
 from pymongo import MongoClient
 from typing import Any, Optional
 
@@ -42,19 +42,19 @@ class MongoDB:
         if not documents:
             self._logger.info('No documents to insert')
             return []
-        
+
         collection = self.get_collection(collection_name)
-        
+
         if len(documents) == 1:
             self._logger.info(f'Inserting 1 document into {collection_name}')
             result = collection.insert_one(documents[0])
             return [result.inserted_id]
-        
+
         self._logger.info(
             f'Inserting {len(documents)} documents into {collection_name}')
         result = collection.insert_many(documents)
         return result.inserted_ids
-    
+
     def find(self,
              collection_name: str,
              filter: Optional[dict[str, Any]] = None,
@@ -73,3 +73,15 @@ class MongoDB:
             sort=sort,
             limit=limit)
         return [document for document in result_cursor]
+
+
+def get_mongo() -> MongoDB:
+    if 'mongodb' not in g:
+        g.mongodb = MongoDB(
+            host=current_app.config['MONGO_HOST'],
+            username=current_app.config['MONGO_USERNAME'],
+            password=current_app.config['MONGO_PASSWORD'],
+            db=current_app.config['MONGO_DATABASE']
+        )
+
+    return g.mongodb

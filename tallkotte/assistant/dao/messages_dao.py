@@ -1,10 +1,13 @@
-from ..mongodb import mongodb
-from ..redisdb import redis
-from .openai.datatypes import Message
+from ...mongodb.mongo_wrapper import get_mongo
+from ...redisdb.redisdb import get_redis
+from ..openai.datatypes import Message
 from flask import current_app
 from typing import Any, Literal, Optional, TypedDict, Union
 
 import json
+
+mongodb = get_mongo()
+redis = get_redis()
 
 
 # ToDo: Use!

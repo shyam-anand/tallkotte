@@ -1,6 +1,6 @@
-from typing import Any
+from flask import current_app, g
 from redis import Redis
-from typing import Optional
+from typing import Any, Optional
 
 import logging
 
@@ -79,3 +79,13 @@ class RedisDB:
         logging.info('h_set: {} -> ({}) {}'.format(key,
                      type(hset_response), hset_response))
         return hset_response  # type: ignore[return-value]
+
+
+def get_redis() -> RedisDB:
+    if 'redis' not in g:
+        g.redis = RedisDB(
+            host=current_app.config['REDIS_HOST'],  # type: ignore
+            port=current_app.config['REDIS_PORT'],  # type: ignore
+            db=current_app.config['REDIS_DATABASE']  # type: ignore
+        )
+    return g.redis

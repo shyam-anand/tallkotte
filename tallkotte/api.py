@@ -1,50 +1,48 @@
-from .assistant.assistant_service import AssistantService
-from .setup import ASSISTANT_ID
-from .assistant.openai import openai
-from flask import Flask, request, jsonify
+from .assistant.assistant_service import get_assistant
+from flask import Blueprint, current_app, jsonify, request
 from markupsafe import escape
 import logging
 import traceback
 
-app = Flask(__name__)
+bp = Blueprint('api', __name__, url_prefix='/api')
 
-assistant_service = AssistantService(ASSISTANT_ID)
+assistant_service = get_assistant()
 
 
-@app.errorhandler(500)
-@app.errorhandler(Exception)
+@bp.errorhandler(500)
+@bp.errorhandler(Exception)
 def internal_server_error(e: Exception):
-    app.logger.error(e)
-    if app.logger.isEnabledFor(logging.DEBUG):
+    current_app.logger.error(e)
+    if current_app.logger.isEnabledFor(logging.DEBUG):
         traceback.print_exc()
     return jsonify(error=str(e)), 500  # type: ignore
 
 
-@app.route('/')
+@bp.route('/')
 def home():
     return {
         'status': 'ok'
     }
 
 
-@app.route('/openai/threads/<thread_id>/messages')
+@bp.route('/openai/threads/<thread_id>/messages')
 def thread_messages(thread_id: str):
-    messages = openai.list_messages(
+    messages = assistant_service.get_messages(
         thread_id,
-        request.args.get('after'),
-        request.args.get('before'),
-        request.args.get('limit'),  # type: ignore
-        request.args.get('sort'))  # type: ignore
+        after=request.args.get('after'),
+        before=request.args.get('before'),
+        limit=request.args.get('limit'),  # type: ignore
+        sort=request.args.get('sort'))  # type: ignore
 
     return jsonify(messages)
 
 
-@app.route('/assistant')
+@bp.route('/assistant')
 def assistant():
-    return jsonify(assistant_service.state)
+    return assistant_service.state.toJSON()
 
 
-@app.route('/threads/<thread_id>/messages', methods=['GET'])
+@bp.route('/threads/<thread_id>/messages', methods=['GET'])
 def get_messages(thread_id: str):
     after = request.args.get('after')
 
@@ -53,7 +51,7 @@ def get_messages(thread_id: str):
     return jsonify(messages)
 
 
-@app.route('/messages', methods=['POST'])  # type: ignore[no-any-return]
+@bp.route('/messages', methods=['POST'])  # type: ignore[no-any-return]
 def messages():  # type: ignore[no-any-return]
     request_json = request.get_json()
     text = request_json['text'] if request_json \
@@ -67,13 +65,13 @@ def messages():  # type: ignore[no-any-return]
     return message, 201
 
 
-@app.route('/runs/<run_id>', methods=['GET'])
+@bp.route('/runs/<run_id>', methods=['GET'])
 def run(run_id: str):
     run = assistant_service.get_run(escape(run_id))
     return jsonify(run)
 
 
-@app.route('/messages/<message_id>/response', methods=['GET'])
+@bp.route('/messages/<message_id>/response', methods=['GET'])
 def get_response(message_id: str):
     return jsonify(
         assistant_service.get_response(escape(message_id))

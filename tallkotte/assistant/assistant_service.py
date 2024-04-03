@@ -1,18 +1,25 @@
-from . import background_task_executor, messages_dao
+from .dao import messages_dao
+from . import background_task_executor
+from ..redisdb.redisdb import get_redis
 from .assistant_thread import AssistantThread
 from .constants import ASSISTANT_NAME, ASSISTANT_DESCRIPTION, ASSISTANT_INSTRUCTION
-from .openai import openai
+from .openai import get_openai
 from .openai.datatypes import Message
-from ..redisdb import redis
+from flask import current_app, g
 from openai.types.beta.assistant import Assistant
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import json
 import logging
 
 
-# ToDo: Change to TypedDict, move save() to AssistantService
+redis = get_redis()
+openai = get_openai()
+
+
 class AssistantState:
+    # ToDo: Change to TypedDict, move save() to AssistantService
+
     def __init__(self, id: str, state: dict[str, Any]):
         self._id = id
         self._state = state
@@ -32,7 +39,9 @@ class AssistantState:
         logging.info(f'Saving state {self._id}: {state}')
         redis.write(self._id, state)
 
-
+    def toJSON(self):
+        return json.dumps(self.state)
+        
 def save_assistant(assistant: Assistant) -> AssistantState:
     assistant_state = AssistantState(
         assistant.id,
@@ -83,7 +92,8 @@ class AssistantService:
             openai.create_assistant(
                 ASSISTANT_NAME,
                 ASSISTANT_DESCRIPTION,
-                ASSISTANT_INSTRUCTION)
+                ASSISTANT_INSTRUCTION
+            )
         )
 
     def _retrieve(self, assistant_id: str) -> AssistantState:
@@ -152,9 +162,14 @@ class AssistantService:
 
     def get_messages(self,
                      thread_id: str = '',
-                     after: Optional[str] = '') -> list[Message]:
+                     *,
+                     after: Optional[str] = None,
+                     before: Optional[str] = None,
+                     limit: Optional[int] = 20,
+                     sort: Optional[Literal['asc', 'desc']] = 'desc') -> list[Message]:
         thread = self.get_thread(thread_id)
-        return thread.get_messages(after)
+        return thread.get_messages(
+            after=after, before=before, limit=limit, sort=sort)
 
     def get_run(self, run_id: str):
         return openai.retrieve_run(run_id, self.active_thread)
@@ -169,3 +184,11 @@ class AssistantService:
             raise ValueError(f'Message has no run_id: {message_id}')
 
         return self.get_thread().get_response(message['run_id'], message['id'])
+
+
+def get_assistant() -> AssistantService:
+    if 'assistant' not in g:
+        g.assistant = AssistantService(
+            current_app.config['OPENAI_ASSISTANT_ID']  # type: ignore
+        )
+    return g.assistant

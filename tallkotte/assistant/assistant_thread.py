@@ -1,15 +1,19 @@
-from . import messages_dao
+from .dao import messages_dao
+from ..redisdb.redisdb import get_redis
 from .constants import ASSISTANT_INIT_MESSAGE
-from .openai import openai
+from .openai import get_openai
 from .openai.datatypes import Message
-from ..redisdb import redis
 from openai.types import FileObject
 from openai.types.beta import Thread
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import json
 import logging
 import time
+
+
+redis = get_redis()
+openai = get_openai()
 
 
 class AssistantThread:
@@ -35,7 +39,7 @@ class AssistantThread:
     def _init_thread(self,
                      thread_id: Optional[str],
                      files: list[FileObject] = [],
-                     init_message: str = ASSISTANT_INIT_MESSAGE,) -> None:
+                     init_message: str = ASSISTANT_INIT_MESSAGE) -> None:
         def _save(thread: Thread) -> dict[str, str | list[str]]:
             thread_json: dict[str, str | list[str]] = {
                 'id': thread.id,
@@ -107,16 +111,6 @@ class AssistantThread:
         redis.write(f'last_sent:{self.id}', json.dumps(message['id']))
 
         return message
-
-    def get_messages(self,
-                     before: Optional[str] = None,
-                     after: Optional[str] = None) -> list[Message]:
-        self._logger.debug('Retrieving messages for thread: %s%s',
-                           self.id, f'after {after}' if after else '')
-        messages = openai.list_messages(
-            self.id, before=before, after=after)
-        self._logger.info(f'{len(messages)} messages retrieved')
-        return messages
 
     def _await_run_completion(self, run_id: str,
                               wait_delay: int = 2,
@@ -191,3 +185,24 @@ class AssistantThread:
         return self._get_saved_response(run_id) \
             or self._await_run_completion_and_get_response(
                 run_id, user_message_id)
+
+    def get_messages(
+            self, *,
+            before: Optional[str] = None,
+            after: Optional[str] = None,
+            limit: Optional[int] = 20,
+            sort: Optional[Literal['asc', 'desc']] = 'desc') -> list[Message]:
+        """Get messages for the thread.
+
+        For details of args, refer :py:meth:`openai.OpenAIWrapper.list_messages`.
+        """
+        self._logger.debug('Retrieving messages for thread: %s%s',
+                           self.id, f'after {after}' if after else '')
+
+        messages = openai.list_messages(self.id,
+                                        before=before,
+                                        after=after,
+                                        limit=limit or 20,
+                                        sort=sort)
+        self._logger.info(f'{len(messages)} messages retrieved')
+        return messages

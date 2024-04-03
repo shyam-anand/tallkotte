@@ -142,12 +142,14 @@ class OpenAIWrapper:
             for run in self.threads.runs.list(thread_id=thread_id)
         ]
 
-    def list_messages(self,
-                      thread: str,
-                      after: Optional[str] = None,
-                      before: Optional[str] = None,
-                      limit: int = 20,
-                      sort: Literal['asc', 'desc'] = 'desc') -> list[Message]:
+    def list_messages(
+            self,
+            thread: str,
+            *,
+            after: Optional[str] = None,
+            before: Optional[str] = None,
+            limit: Optional[int] = None,
+            sort: Optional[Literal['asc', 'desc']] = None) -> list[Message]:
         """
         Retrieve a list of messages from a thread.
 
@@ -170,26 +172,28 @@ class OpenAIWrapper:
                 Limit can range between 1 and 100, and the default is 20.
 
             sort (Literal["asc", "desc"], optional): Sort order by the `created_at`
-                timestamp of the objects. `asc` (the default) for ascending order and
-                `desc` for descending order.
+                timestamp of the objects. `asc` for ascending order and `desc` 
+                (the default) for descending order.
 
         Returns:
             list[Message]: Messages in the thread.
         """
-        list_args = {'thread_id': thread, 'order': sort}
+        list_args: dict[str, str | int] = {'thread_id': thread}
         if after:
             list_args['after'] = after
         if before:
             list_args['before'] = before
         if limit:
-            list_args['limit'] = limit  # type: ignore
+            list_args['limit'] = limit
+        if sort:
+            list_args['order'] = sort
 
         self._logger.info(f"Retrieving messages [{list_args}]")
         try:
             message_list = self.messages.list(**list_args)  # type: ignore
-            
+
             print(message_list)
-            
+
             for message in message_list:
                 self._logger.info(message)
             return [converters.to_message(message) for message in message_list]

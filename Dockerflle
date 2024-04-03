@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+RUN mkdir /tallkotte
+WORKDIR /tallkotte
+ADD . /tallkotte/
+RUN pip install -r requirements.txt
+RUN pip install .
+RUN pip install waitress
+RUN --mount=type=secret,id=openai,target=/tallkotte/.openai/credentials \
+  waitress-serve tallkotte:app
+
+EXPOSE 8080
