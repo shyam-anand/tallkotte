@@ -1,67 +1,9 @@
-from ...mongodb.mongo_wrapper import get_mongo
-from ...redisdb.redisdb import get_redis
-from ..openai.datatypes import Message
+from ...datastore.cachedstore import CachedStore
+from ...datastore.mongodb.mongo_wrapper import get_mongo
+from ...datastore.mongodb.mongo_query import mongo_query
+from ..openai.datatypes.message import Message
 from flask import current_app
-from typing import Any, Literal, Optional, TypedDict, Union
-
-import json
-
-mongodb = get_mongo()
-redis = get_redis()
-
-
-# ToDo: Use!
-class MongoQueryBuilder:
-    def __init__(self, **initial_query: Any):
-        self.query = initial_query
-
-    def and_(self, **condition: Any) -> 'MongoQueryBuilder':
-        self.query.setdefault('$and', []).append(condition)
-        return self
-
-    def or_(self, **condition: Any) -> 'MongoQueryBuilder':
-        self.query.setdefault('$or', []).append(condition)
-        return self
-
-    def build(self) -> dict[str, Any]:
-        return self.query
-
-
-class MongoQuery(TypedDict):
-    filter: dict[str, Any]
-    projection: Optional[dict[str, Any]]
-    sort: Optional[dict[str, Any]]
-    limit: Optional[int]
-
-
-def _mongo_query(filter: dict[str, Any],
-                 projection: Optional[dict[str, str]] = None,
-                 sort: Optional[dict[str, str]] = None,
-                 limit: Optional[int] = None) -> MongoQuery:
-    return MongoQuery(filter=filter, projection=projection, sort=sort, limit=limit)
-
-
-def _redis_read(key: str) -> Optional[list[Message]]:
-    result = redis.read(f'messages:{key}')
-    if result:
-        data_dict: Union[dict[str, Any],
-                         list[dict[str, Any]]] = json.loads(result)
-        if isinstance(data_dict, list):
-            return [Message(**item) for item in data_dict]
-        else:
-            return [Message(**data_dict)]
-
-
-def _read_through(key: str, on_miss: MongoQuery) -> Optional[list[Message]]:
-    cached_result = _redis_read(key)
-    if cached_result:
-        return cached_result
-
-    db_result = find(**on_miss)
-    if db_result:
-        result = [_to_message(result) for result in db_result]
-        redis.write(f'messages:{key}', json.dumps(result))
-        return result
+from typing import Any, Literal, Optional
 
 
 def _to_message(message_document: Message) -> Message:
@@ -73,6 +15,21 @@ def _to_message(message_document: Message) -> Message:
         thread_id=message_document['thread_id'],
         content=message_document['content']
     )
+
+
+def _convert_to_message(message_dict: dict[str, Any]) -> Message:
+    return Message(
+        id=message_dict['id'],
+        role=message_dict['role'],
+        created_at=message_dict['created_at'],
+        run_id=message_dict['run_id'],
+        thread_id=message_dict['thread_id'],
+        content=message_dict['content']
+    )
+
+
+cached_store = CachedStore[Message]('messages', _convert_to_message)
+mongodb = get_mongo(Message)
 
 
 def save(messages: list[Message]) -> list[str]:
@@ -96,23 +53,36 @@ def find(filter: Optional[dict[str, Any]] = None,
 
 
 def find_by_id(message_id: str) -> Message | None:
-    results = _read_through(message_id,
-                            _mongo_query(filter={'id': message_id}))
-    if results:
-        return results[0]
+    result = cached_store.read(message_id,
+                               mongo_query(filter={'id': message_id}))
+    if result:
+        if isinstance(result, list):
+            return result[0]
+        return result
+
+
+def _as_list(result: list[Message] | Message | None) -> list[Message]:
+    if result:
+        if isinstance(result, list):
+            return result
+        return [result]
+    return []
 
 
 def find_by_run_id(run_id: str) -> list[Message]:
-    return _read_through(run_id,
-                         _mongo_query(filter={'run_id': run_id})) or []
+    result = cached_store.read(run_id,
+                               mongo_query(filter={'run_id': run_id})) or []
+
+    return _as_list(result)
 
 
 def find_by_run_id_and_role(
         run_id: str, role: Literal['user', 'assistant']) -> list[Message]:
-    query = _mongo_query(filter={
+    query = mongo_query(filter={
         '$and': [
             {'run_id': run_id},
             {'role': 'assistant'}
         ]
     })
-    return _read_through(f'run:{run_id}:role:{role}', query) or []
+    results = cached_store.read(f'run:{run_id}:role:{role}', query)
+    return _as_list(results)

@@ -1,12 +1,13 @@
+from .datatypes.run import Run
 from . import converters
-from .datatypes import Message, Run
+from .datatypes.message import Message
+from flask import current_app, g
 from openai import OpenAI
 from openai.types import FileObject
 from openai.types.beta import Thread
 from openai.types.beta.assistant import Assistant
 from openai.types.beta.threads import Run as OpenAIRun
 from typing import Literal, Optional
-
 import logging
 
 
@@ -38,12 +39,11 @@ class OpenAIWrapper:
     def messages(self):
         return self.client.beta.threads.messages
 
-    def create_assistant(
-            self,
-            name: str,
-            description: str,
-            instructions: str) -> Assistant:
-        self._logger.info("Creating assistant...")
+    def create_assistant(self,
+                         name: str,
+                         description: str,
+                         instructions: str) -> Assistant:
+        self._logger.info("Creating assistant")
 
         assistant = self.client.beta.assistants.create(name=name,
                                                        description=description,
@@ -200,3 +200,13 @@ class OpenAIWrapper:
         except Exception as e:
             self._logger.error(f"Error retrieving messages: {e}")
             return []
+
+
+def get_openai() -> OpenAIWrapper:
+    if 'openai' not in g:
+        g.openai = OpenAIWrapper(
+            api_key=current_app.config['OPENAI_API_KEY'],  # type: ignore
+            model=current_app.config['OPENAI_MODEL'],  # type: ignore
+        )
+
+    return g.openai

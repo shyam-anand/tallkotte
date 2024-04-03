@@ -1,4 +1,3 @@
-from dotenv import load_dotenv
 from flask import Flask
 from pathlib import Path
 from typing import Any, Mapping
@@ -8,10 +7,6 @@ import logging
 
 _SRC_ROOT = Path(__file__).parent
 _APP_ROOT = _SRC_ROOT.parent
-
-dotenv_path = os.path.join(_APP_ROOT, '.env')
-if not load_dotenv(dotenv_path=dotenv_path):
-    raise RuntimeError(f'Error loading .env file [{dotenv_path}]')
 
 _LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
@@ -24,31 +19,39 @@ logging.basicConfig(
 )
 
 
-def create_app(test_config: Mapping[str, Any] | Any = None):
-    logging.info('Creating Flask app')
-
+def _create_flask_config(
+        test_config: Mapping[str, Any] | Any = None) -> Mapping[str, Any]:
     # These imports are here so that load_dotenv() is already invoked.
     from .assistant import get_assistant_id
     from .assistant.openai import openai_config
-    from .mongodb import mongo_config
-    from .redisdb import redis_config
+    from .datastore.mongodb import mongo_config
+    from .datastore.redisdb import redis_config
+
+    assistant_id = get_assistant_id(_APP_ROOT)  # type: ignore
 
     flask_config = test_config or {
         'SECRET_KEY': 'dev',
+        'ASSISTANT_ID': assistant_id,
     }
 
     flask_config.update(openai_config)  # type: ignore
     flask_config.update(mongo_config)  # type: ignore
     flask_config.update(redis_config)  # type: ignore
-    flask_config.update({  # type: ignore
-        'OPENAI_ASSISTANT_ID': get_assistant_id(_APP_ROOT)
-    })
+
+    return flask_config
+
+
+def create_app(test_config: Mapping[str, Any] | Any = None):
+    logging.info('---< Creating Flask app >---')
 
     # create and configure Flask app
     app = Flask(__name__, instance_relative_config=True)
-    app.config.from_mapping(flask_config)
+    app.config.from_mapping(_create_flask_config(test_config))
 
     with app.app_context():
+        from .assistant import assistant_service
+        assistant_service.get_assistant()
+
         from . import api
         app.register_blueprint(api.bp)
 

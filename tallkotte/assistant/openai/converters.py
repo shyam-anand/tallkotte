@@ -1,4 +1,5 @@
-from .datatypes import Message, Run, Usage
+from .datatypes.run import Run, Usage
+from .datatypes.message import Message
 from openai.types.beta.threads import Run as ThreadRun
 from openai.types.beta.threads.message import Message as ThreadMessage
 from openai.types.beta.threads.run import Usage as ThreadUsage

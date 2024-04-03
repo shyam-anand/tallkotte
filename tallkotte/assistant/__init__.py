@@ -18,7 +18,7 @@ def get_assistant_id(app_root: Path) -> str:
     if assistant_id_filepath.is_file():
         assistant_id_json = json.loads(assistant_id_filepath.read_text())
         assistant_id = assistant_id_json['id']
-        logger.info(f"Found assistant id: {assistant_id}")
+        logger.info(f'Found assistant id: {assistant_id}')
         return assistant_id
     else:
-        raise ValueError(f"File not found: {assistant_id_filepath}")
+        raise ValueError(f'File not found: {assistant_id_filepath}')

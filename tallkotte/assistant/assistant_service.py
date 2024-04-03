@@ -1,15 +1,14 @@
-from .dao import messages_dao
 from . import background_task_executor
-from ..redisdb.redisdb import get_redis
+from ..datastore.redisdb.redisdb import get_redis
 from .assistant_thread import AssistantThread
 from .constants import ASSISTANT_NAME, ASSISTANT_DESCRIPTION, ASSISTANT_INSTRUCTION
-from .openai import get_openai
-from .openai.datatypes import Message
+from .dao import assistants_dao, messages_dao
+from .openai.datatypes.assistant import Assistant, to_assistant
+from .openai.datatypes.message import Message
+from .openai.openai_wrapper import get_openai
 from flask import current_app, g
-from openai.types.beta.assistant import Assistant
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
-import json
 import logging
 
 
@@ -17,106 +16,66 @@ redis = get_redis()
 openai = get_openai()
 
 
-class AssistantState:
-    # ToDo: Change to TypedDict, move save() to AssistantService
-
-    def __init__(self, id: str, state: dict[str, Any]):
-        self._id = id
-        self._state = state
-
-    @property
-    def state(self) -> dict[str, Any]:
-        return self._state
-
-    def set(self, key: str, value: Any):
-        self.state[key] = value
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return self.state.get(key, default)
-
-    def save(self):
-        state = json.dumps(self.state)
-        logging.info(f'Saving state {self._id}: {state}')
-        redis.write(self._id, state)
-
-    def toJSON(self):
-        return json.dumps(self.state)
-        
-def save_assistant(assistant: Assistant) -> AssistantState:
-    assistant_state = AssistantState(
-        assistant.id,
-        {
-            'id': assistant.id,
-            'name': assistant.name,
-            'instructions': assistant.instructions,
-            'tools': [tool.type for tool in assistant.tools],
-            'threads': [],
-            'active_thread': ''
-        }
-    )
-    assistant_state.save()
-
-    return assistant_state
-
-
 class AssistantService:
 
     _logger = logging.getLogger(__name__)
 
-    def __init__(self, assistant_id: Optional[str] = None):
-        self._state = self._retrieve(assistant_id) if assistant_id \
-            else self._create()
+    def __init__(self, assistant_id: Optional[str] = None, create_new: bool = False):
+        if assistant_id:
+            self._state = self._retrieve(assistant_id)
+        elif create_new:
+            self._create()
+        else:
+            raise ValueError('No assistant id provided')
 
     @property
-    def state(self) -> AssistantState:
+    def state(self) -> Assistant:
         return self._state
 
     @property
     def id(self) -> str:
-        return self._state.get('id')
+        return self._state['id']
 
     @property
-    def name(self) -> str:
-        return self._state.get('name')
+    def name(self) -> str | None:
+        return self._state['name']
 
     @property
     def threads(self) -> list[str]:
-        return self._state.get('threads')
+        return self._state['threads']
 
     @property
     def active_thread(self) -> str:
-        return self._state.get('active_thread')
+        return self._state['active_thread']
 
-    def _create(self) -> AssistantState:
-        return save_assistant(
-            openai.create_assistant(
-                ASSISTANT_NAME,
-                ASSISTANT_DESCRIPTION,
-                ASSISTANT_INSTRUCTION
-            )
+    def _create(self) -> Assistant:
+        openai_assistant = openai.create_assistant(
+            ASSISTANT_NAME,
+            ASSISTANT_DESCRIPTION,
+            ASSISTANT_INSTRUCTION
         )
+        return assistants_dao.save(to_assistant(openai_assistant))
 
-    def _retrieve(self, assistant_id: str) -> AssistantState:
-        assistant_json = redis.read(assistant_id)
-        if assistant_json:
-            assistant_state = json.loads(assistant_json)
-            return AssistantState(assistant_state['id'], assistant_state)
+    def _retrieve(self, assistant_id: str) -> Assistant:
+        assistant_state = assistants_dao.get(assistant_id)
+        if assistant_state:
+            return assistant_state
 
         assistant = openai.retrieve_assistant(assistant_id)
         if not assistant:
             raise ValueError(f'No assistant found with id: {assistant_id}')
 
-        return save_assistant(assistant)
+        return assistants_dao.save(to_assistant(assistant))
 
     def _set_active_thread(self, thread_id: str):
         self._logger.info(
             f"Setting active thread {thread_id} for assistant {self.id}")
 
-        self._state.set('active_thread', thread_id)
+        self._state['active_thread'] = thread_id
         if thread_id not in self.threads:
             self.threads.append(thread_id)
 
-        self._state.save()
+        assistants_dao.save(self._state)
 
     def _get_active_thread_id(self) -> Optional[str]:
         if not self.active_thread:
@@ -127,7 +86,7 @@ class AssistantService:
         return self.active_thread
 
     def create_thread(self,
-                      cv_files: list[str],
+                      cv_files: list[str] = [],
                       set_active: bool = True) -> AssistantThread:
         files = [
             openai.open_file(filename)
@@ -141,7 +100,12 @@ class AssistantService:
 
     def get_thread(self, thread_id: str = '') -> AssistantThread:
         """Retrurns the active or specified thread."""
-        return AssistantThread(self.id, thread_id or self._get_active_thread_id())
+        if thread_id:
+            return AssistantThread(self.id, thread_id)
+        elif self.active_thread:
+            return AssistantThread(self.id, self.active_thread)
+
+        return self.create_thread()
 
     def send_message(self, text: str, thread_id: str = '',
                      *, await_response_async: bool = True) -> Message:
@@ -187,8 +151,10 @@ class AssistantService:
 
 
 def get_assistant() -> AssistantService:
+    logging.info('Initializing assistant')
     if 'assistant' not in g:
+        assistant_id = current_app.config.get('ASSISTANT_ID')  # type: ignore
+        logging.info(f'Instantiating assistant [assisant_id="{assistant_id}"]')
         g.assistant = AssistantService(
-            current_app.config['OPENAI_ASSISTANT_ID']  # type: ignore
-        )
+            assistant_id=assistant_id)  # type: ignore
     return g.assistant

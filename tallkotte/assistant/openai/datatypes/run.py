@@ -1,15 +1,10 @@
-from typing import Dict, List, Literal, TypedDict, Union
-
-_Message = Dict[str, Union[str, int, List[str], None]]
+from typing import TypedDict
 
 
-class Message(TypedDict):
-    id: str
-    role: Literal['user', 'assistant']
-    created_at: int
-    run_id: str
-    thread_id: str
-    content: list[str]
+class Usage(TypedDict):
+    completion_tokens: int
+    prompt_tokens: int
+    total_tokens: int
 
 
 # Run(
@@ -36,11 +31,6 @@ class Message(TypedDict):
     # prompt_tokens=3876,
     # total_tokens=4026),
     # temperature=1)
-
-class Usage(TypedDict):
-    completion_tokens: int
-    prompt_tokens: int
-    total_tokens: int
 
 
 class Run(TypedDict):

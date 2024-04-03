@@ -6,8 +6,6 @@ import traceback
 
 bp = Blueprint('api', __name__, url_prefix='/api')
 
-assistant_service = get_assistant()
-
 
 @bp.errorhandler(500)
 @bp.errorhandler(Exception)
@@ -27,7 +25,7 @@ def home():
 
 @bp.route('/openai/threads/<thread_id>/messages')
 def thread_messages(thread_id: str):
-    messages = assistant_service.get_messages(
+    messages = get_assistant().get_messages(
         thread_id,
         after=request.args.get('after'),
         before=request.args.get('before'),
@@ -39,14 +37,14 @@ def thread_messages(thread_id: str):
 
 @bp.route('/assistant')
 def assistant():
-    return assistant_service.state.toJSON()
+    return get_assistant().state
 
 
 @bp.route('/threads/<thread_id>/messages', methods=['GET'])
 def get_messages(thread_id: str):
     after = request.args.get('after')
 
-    messages = assistant_service.get_messages(
+    messages = get_assistant().get_messages(
         thread_id=escape(thread_id), after=after)
     return jsonify(messages)
 
@@ -59,7 +57,7 @@ def messages():  # type: ignore[no-any-return]
     if not text:
         raise ValueError('No message provided')
 
-    message = assistant_service.send_message(text)
+    message = get_assistant().send_message(text)
     if '_id' in message.keys():
         del message['_id']  # type: ignore
     return message, 201
@@ -67,12 +65,12 @@ def messages():  # type: ignore[no-any-return]
 
 @bp.route('/runs/<run_id>', methods=['GET'])
 def run(run_id: str):
-    run = assistant_service.get_run(escape(run_id))
+    run = get_assistant().get_run(escape(run_id))
     return jsonify(run)
 
 
 @bp.route('/messages/<message_id>/response', methods=['GET'])
 def get_response(message_id: str):
     return jsonify(
-        assistant_service.get_response(escape(message_id))
+        get_assistant().get_response(escape(message_id))
     )

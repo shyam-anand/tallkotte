@@ -1,8 +1,8 @@
-from .dao import messages_dao
-from ..redisdb.redisdb import get_redis
+from ..datastore.redisdb.redisdb import get_redis
 from .constants import ASSISTANT_INIT_MESSAGE
-from .openai import get_openai
-from .openai.datatypes import Message
+from .dao import messages_dao
+from .openai.openai_wrapper import get_openai
+from .openai.datatypes.message import Message
 from openai.types import FileObject
 from openai.types.beta import Thread
 from typing import Any, Literal, Optional
