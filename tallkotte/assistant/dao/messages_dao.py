@@ -1,9 +1,9 @@
 from ...datastore.cachedstore import CachedStore
-from ...datastore.mongodb.mongo_wrapper import get_mongo
+from ...datastore.mongodb.mongo_wrapper import get_mongo, MongoDB
 from ...datastore.mongodb.mongo_query import mongo_query
 from ..openai.datatypes.message import Message
 from flask import current_app
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Mapping, Optional
 
 
 def _to_message(message_document: Message) -> Message:
@@ -17,7 +17,7 @@ def _to_message(message_document: Message) -> Message:
     )
 
 
-def _convert_to_message(message_dict: dict[str, Any]) -> Message:
+def _convert_to_message(message_dict: dict[str, Any] | Mapping[str, Any]) -> Message:
     return Message(
         id=message_dict['id'],
         role=message_dict['role'],
@@ -29,7 +29,7 @@ def _convert_to_message(message_dict: dict[str, Any]) -> Message:
 
 
 cached_store = CachedStore[Message]('messages', _convert_to_message)
-mongodb = get_mongo(Message)
+mongodb: MongoDB[Message] = get_mongo()
 
 
 def save(messages: list[Message]) -> list[str]:

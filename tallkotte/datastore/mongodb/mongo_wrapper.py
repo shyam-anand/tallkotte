@@ -86,7 +86,7 @@ class MongoDB(Generic[T]):
     def upsert(self,
                collection_name: str,
                filter: dict[str, Any],
-               data: dict[str, Any]) -> Any:
+               data: dict[str, Any] | Mapping[str, Any]) -> Any:
         collection = self.get_collection(collection_name)
         upsert_result = collection.update_one(
             filter, {'$set': data}, upsert=True)
@@ -96,7 +96,7 @@ class MongoDB(Generic[T]):
 U = TypeVar('U', bound=Mapping[str, Any])
 
 
-def get_mongo(doc_type: type[U]) -> MongoDB[U]:
+def get_mongo() -> MongoDB[U]:  # type: ignore
     if 'mongodb' not in g:
         g.mongodb = MongoDB[U](
             host=current_app.config['MONGO_HOST'],  # type: ignore

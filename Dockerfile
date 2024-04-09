@@ -49,8 +49,11 @@ RUN pip install waitress
 # Switch to the non-privileged user to run the application.
 USER appuser
 
+# ToDo - Remove, and read from DB instead
 # Copy the assistant.json file into the installed app.
 COPY data/assistant.json /usr/local/lib/python3.12/site-packages/data/assistant.json
+
+ENV REDIS_HOST=host.docker.internal
 
 # Expose the port that the application listens on.
 EXPOSE 8080

@@ -1,78 +1,90 @@
+from ..datastore.cachedstore import CachedStore
+from ..datastore.mongodb.mongo_query import MongoQueryBuilder
 from ..datastore.redisdb.redisdb import get_redis
 from .constants import ASSISTANT_INIT_MESSAGE
 from .dao import messages_dao
-from .openai.openai_wrapper import get_openai
 from .openai.datatypes.message import Message
+from .openai.openai_wrapper import get_openai
 from openai.types import FileObject
-from openai.types.beta import Thread
-from typing import Any, Literal, Optional
+from openai.types.beta import Thread as OpenAiThread
+from typing import Literal, Optional, TypedDict
 
 import json
 import logging
 import time
 
 
+class Thread(TypedDict):
+    id: str
+    assistant_id: str
+    created_at: int
+
+
 redis = get_redis()
 openai = get_openai()
+cached_store = CachedStore[Thread](
+    'threads', lambda thread_map: Thread(**thread_map))
 
 
 class AssistantThread:
 
     _logger = logging.getLogger(__name__)
 
-    _id: str = ''
-
     def __init__(self,
                  assistant_id: str,
                  thread_id: Optional[str] = None,
-                 files: list[FileObject] = []) -> None:
+                 files: list[FileObject] = [],
+                 init_message: Optional[str] = None,
+                 *,
+                 create_new: bool = False) -> None:
         if not assistant_id:
             raise ValueError('assistant_id is required')
 
-        self._assistant_id = assistant_id
-        self._init_thread(thread_id=thread_id, files=files)
+        if thread_id:
+            self._state = self._get(assistant_id, thread_id)
+        elif create_new:
+            init_message = init_message or ASSISTANT_INIT_MESSAGE
+            self._state = self._create(assistant_id, files, init_message)
+        else:
+            raise ValueError(
+                'thread_id must be specified, or create_new must be True')
 
     @property
     def id(self) -> str:
-        return self._id
+        return self._state['id']
 
-    def _init_thread(self,
-                     thread_id: Optional[str],
-                     files: list[FileObject] = [],
-                     init_message: str = ASSISTANT_INIT_MESSAGE) -> None:
-        def _save(thread: Thread) -> dict[str, str | list[str]]:
-            thread_json: dict[str, str | list[str]] = {
-                'id': thread.id,
-                'runs': []
-            }
-            redis.write(thread.id, json.dumps(thread_json))
-            return thread_json
+    @property
+    def assistant_id(self) -> str:
+        return self._state['assistant_id']
 
-        thread = (
-            self._get(thread_id) or _save(
-                openai.retrieve_thread(self._assistant_id))
-        ) if thread_id else (
-            _save(
-                openai.create_thread(
-                    files=files, init_message=init_message)
-            )
-        )
+    def _save(self, opeanai_thread: OpenAiThread, assistant_id: str) -> Thread:
+        thread = Thread(id=opeanai_thread.id,
+                        assistant_id=assistant_id,
+                        created_at=opeanai_thread.created_at)
 
-        self._id = thread['id']  # type: ignore
+        cached_store.write_one(thread)
+        self._logger.info(f'Thread saved: {thread}')
+        return thread
 
-    def _save(self, thread: Thread) -> dict[str, Any]:
-        thread_json: dict[str, Any] = {
-            'id': thread.id,
-            'runs': []
-        }
-        redis.write(thread.id, json.dumps(thread_json))
-        self._logger.info(f'Thread saved: {thread.id}')
-        return thread_json
-
-    def _get(self, thread_id: str):
+    def _get(self, assistant_id: str, thread_id: str) -> Thread:
         self._logger.info(f'Reading: {thread_id}')
-        thread_json = redis.read(thread_id)
-        return json.loads(thread_json) if thread_json else None
+        thread = cached_store.read(thread_id,
+                                   MongoQueryBuilder(id=thread_id).build())
+        if not thread:
+            return self._save(openai.retrieve_thread(thread_id), assistant_id)
+
+        return thread[0] if isinstance(thread, list) \
+            else thread
+
+    def _create(self,
+                assistant_id: str,
+                files: list[FileObject] = [],
+                init_message: str = ASSISTANT_INIT_MESSAGE) -> Thread:
+        return self._save(
+            openai.create_thread(
+                files=files, init_message=init_message),
+            assistant_id
+        )
 
     def _get_last_message(self, thread_id: str) -> Message | None:
         """Get last message in thread from Mongo."""
@@ -98,7 +110,7 @@ class AssistantThread:
         message = openai.create_message(self.id, text)
         self._logger.info(f'Message {message['id']} added to thread {self.id}')
 
-        run = openai.create_run(self._assistant_id, self.id)
+        run = openai.create_run(self.assistant_id, self.id)
         run_id = run['id']
         redis.write(f'{run_id}:status', 'created')
         self._logger.info(f'{run_id} created in {self.id}')
@@ -190,7 +202,7 @@ class AssistantThread:
             self, *,
             before: Optional[str] = None,
             after: Optional[str] = None,
-            limit: Optional[int] = 20,
+            limit: Optional[int] = None,
             sort: Optional[Literal['asc', 'desc']] = 'desc') -> list[Message]:
         """Get messages for the thread.
 

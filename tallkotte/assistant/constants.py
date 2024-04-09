@@ -8,7 +8,7 @@ __all__ = [
     'ASSISTANT_INIT_MESSAGE'
 ]
 
-ASSISTANT_NAME: str = os.environ.get('ASSISTANT_NAME', "Pyyne CV Assistant")
+ASSISTANT_NAME: str = os.environ.get('ASSISTANT_NAME', "Tallkotte")
 ASSISTANT_DESCRIPTION: str = """Pyyne CV Assistant is a bot that helps you 
 review CVs."""
 ASSISTANT_INSTRUCTION: str = """You are a CV reviewer.

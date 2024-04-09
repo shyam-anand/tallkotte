@@ -1,3 +1,4 @@
+from .datatypes.assistant import Assistant, to_assistant
 from .datatypes.run import Run
 from . import converters
 from .datatypes.message import Message
@@ -5,7 +6,6 @@ from flask import current_app, g
 from openai import OpenAI
 from openai.types import FileObject
 from openai.types.beta import Thread
-from openai.types.beta.assistant import Assistant
 from openai.types.beta.threads import Run as OpenAIRun
 from typing import Literal, Optional
 import logging
@@ -24,8 +24,7 @@ class OpenAIWrapper:
         self._model = model
 
         self._client = OpenAI(api_key=self._api_key)
-        self._logger.info(f"Client created: {self._client}")
-        self._logger.debug(f'api_key: {self._api_key}')
+        self._logger.info(f"Client initialized")
 
     @property
     def client(self) -> OpenAI:
@@ -50,13 +49,13 @@ class OpenAIWrapper:
                                                        instructions=instructions,
                                                        model=self._model)
         self._logger.info(f'Assistant created: {assistant.id}')
-        return assistant
+        return to_assistant(assistant)
 
     def retrieve_assistant(self, assistant_id: str) -> Assistant:
         self._logger.info(f"Retrieving assistant [{assistant_id}]...")
         assistant = self.client.beta.assistants.retrieve(assistant_id)
         self._logger.info(f"Assistant: {assistant}")
-        return assistant
+        return to_assistant(assistant)
 
     def open_file(self, filename: str) -> FileObject:
         file = self.client.files.create(

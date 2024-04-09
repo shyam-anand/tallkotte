@@ -1,6 +1,8 @@
 from openai.types.beta.assistant import Assistant as OpenAiAssistant
-from typing import Any, Optional, TypedDict, Union
+from typing import Any, Mapping, Optional, TypedDict, Union
+
 import json
+import logging
 
 
 class Assistant(TypedDict):
@@ -33,14 +35,15 @@ def toJSON(assistant: Assistant):
     return json.dumps(assistant)
 
 
-def to_assistant(convert_from: OpenAiAssistant | dict[str, Any]) -> Assistant:
-    if isinstance(convert_from, OpenAiAssistant):
-        return _from_openai_assistant(convert_from)
-    return _from_dict(convert_from)
+def to_assistant(convert_from: OpenAiAssistant | dict[str, Any] | Mapping[str, Any]) -> Assistant:
+    return _from_openai_assistant(convert_from) \
+        if isinstance(convert_from, OpenAiAssistant) \
+        else _from_dict(convert_from)
 
 
 def _from_openai_assistant(openai_assistant: OpenAiAssistant) -> Assistant:
-    return Assistant(
+    logging.info(f'Converting from OpenAiAssistant: {openai_assistant}')
+    assistant = Assistant(
         id=openai_assistant.id,
         name=openai_assistant.name,
         instructions=openai_assistant.instructions,
@@ -48,14 +51,27 @@ def _from_openai_assistant(openai_assistant: OpenAiAssistant) -> Assistant:
         threads=[],
         active_thread=''
     )
+    logging.info(f'Created Assistant: {assistant}')
+    return assistant
 
 
-def _from_dict(assistant_object: dict[str, Any]) -> Assistant:
-    return Assistant(
-        id=assistant_object['id'],
-        name=assistant_object['name'],
-        instructions=assistant_object['instructions'],
-        tools=assistant_object['tools'],
-        threads=[],
-        active_thread=''
-    )
+def _from_dict(assistant_object: dict[str, Any] | Mapping[str, Any]) -> Assistant:
+    logging.info(f'Converting from {type(assistant_object)}: '
+                 f'{assistant_object}')
+    assistant_attributes = {
+        'id': assistant_object['id'],
+        'name': assistant_object['name'],
+        'instructions': assistant_object['instructions'],
+        'tools': assistant_object['tools'],
+    }
+
+    assistant_attributes['threads'] = assistant_object['threads'] \
+        if 'threads' in assistant_object \
+        else []
+    assistant_attributes['active_thread'] = assistant_object['active_thread'] \
+        if 'active_thread' in assistant_object \
+        else ''
+
+    assistant = Assistant(**assistant_attributes)
+    logging.info(f'Created Assistant: {assistant}')
+    return assistant

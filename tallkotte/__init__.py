@@ -7,6 +7,7 @@ import logging
 
 _SRC_ROOT = Path(__file__).parent
 _APP_ROOT = _SRC_ROOT.parent
+_UPLOAD_FOLDER = _APP_ROOT / 'uploads'
 
 _LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
@@ -19,9 +20,15 @@ logging.basicConfig(
 )
 
 
-def _create_flask_config(
-        test_config: Mapping[str, Any] | Any = None) -> Mapping[str, Any]:
-    # These imports are here so that load_dotenv() is already invoked.
+def _init_upload_folder() -> str:
+    if not os.path.exists(_UPLOAD_FOLDER):
+        os.mkdir(_UPLOAD_FOLDER)
+
+    return _UPLOAD_FOLDER.as_posix()
+
+
+def _create_flask_config() -> Mapping[str, Any]:
+    # Imports for app configuration
     from .assistant import get_assistant_id
     from .assistant.openai import openai_config
     from .datastore.mongodb import mongo_config
@@ -29,9 +36,10 @@ def _create_flask_config(
 
     assistant_id = get_assistant_id(_APP_ROOT)  # type: ignore
 
-    flask_config = test_config or {
+    flask_config = {
         'SECRET_KEY': 'dev',
         'ASSISTANT_ID': assistant_id,
+        'UPLOAD_FOLDER': _init_upload_folder(),
     }
 
     flask_config.update(openai_config)  # type: ignore
@@ -41,26 +49,16 @@ def _create_flask_config(
     return flask_config
 
 
-def create_app(test_config: Mapping[str, Any] | Any = None):
+def create_app():
     logging.info('---< Creating Flask app >---')
 
     # create and configure Flask app
     app = Flask(__name__, instance_relative_config=True)
-    app.config.from_mapping(_create_flask_config(test_config))
+    app.config.from_mapping(_create_flask_config())
 
     with app.app_context():
-        from .assistant import assistant_service
-        assistant_service.get_assistant()
-
         from . import api
         app.register_blueprint(api.bp)
-
-    if test_config is None:
-        # load the instance config, if it exists, when not testing
-        app.config.from_pyfile('config.py', silent=True)
-    else:
-        # load the test config if passed in
-        app.config.from_mapping(test_config)
 
     # ensure the instance folder exists
     try:
