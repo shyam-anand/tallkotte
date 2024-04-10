@@ -35,9 +35,11 @@ class MongoDB(Generic[T]):
 
         self._logger.info(f'Connecting to MongoDB: {connection_string}')
         self._client = MongoClient[T](connection_string)
-        self._db = self._client[db]
 
-        self._logger.info(f'Connected to MongoDB, now using database: {db}')
+        server_info = self._client.server_info()
+        self._logger.info(f'Connected to MongoDB: {server_info}')
+
+        self._db = self._client[db]
 
     def list_collections(self) -> list[str]:
         return self._db.list_collection_names()
