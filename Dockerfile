@@ -45,7 +45,7 @@ USER appuser
 
 # ToDo - Remove, and read from DB instead
 # Copy the assistant.json file into the installed app.
-COPY data/assistant.json /usr/local/lib/python3.12/site-packages/data/assistant.json
+COPY data/assistant.json /app/data/assistant.json
 
 # Expose the port that the application listens on.
 EXPOSE 8080

@@ -20,11 +20,18 @@ logging.basicConfig(
 )
 
 
-def _init_upload_folder() -> str:
-    if not os.path.exists(_UPLOAD_FOLDER):
-        os.mkdir(_UPLOAD_FOLDER)
+def _init_upload_folder(cwd: Path) -> str:
+    def is_writable(dirpath: Path) -> bool:
+        return os.access(dirpath, os.W_OK)
+    
+    upload_folder = cwd / 'uploads'
+    if not os.path.exists(upload_folder):
+        logging.info(f'Creating upload folder: {upload_folder}')
+        os.mkdir(upload_folder)
 
-    return _UPLOAD_FOLDER.as_posix()
+    if is_writable(upload_folder):
+        return upload_folder.as_posix()
+    raise RuntimeError(f'Upload folder is not writable: {upload_folder}')
 
 
 def _create_flask_config() -> Mapping[str, Any]:
@@ -34,12 +41,13 @@ def _create_flask_config() -> Mapping[str, Any]:
     from .datastore.mongodb import mongo_config
     from .datastore.redisdb import redis_config
 
-    assistant_id = get_assistant_id(_APP_ROOT)  # type: ignore
+    cwd = Path(os.getcwd())
+    assistant_id = get_assistant_id(cwd / 'data')  # type: ignore
 
     flask_config = {
         'SECRET_KEY': 'dev',
         'ASSISTANT_ID': assistant_id,
-        'UPLOAD_FOLDER': _init_upload_folder(),
+        'UPLOAD_FOLDER': _init_upload_folder(cwd),
     }
 
     flask_config.update(openai_config)  # type: ignore
@@ -50,7 +58,7 @@ def _create_flask_config() -> Mapping[str, Any]:
 
 
 def create_app():
-    logging.info('---< Creating Flask app >---')
+    logging.info('---< Starting Tallkotte >---')
 
     # create and configure Flask app
     app = Flask(__name__, instance_relative_config=True)
